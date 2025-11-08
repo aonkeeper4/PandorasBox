@@ -1,0 +1,5 @@
+PANDORAS_BOX_POSTCARD_0=And thus, {~}{# FF0000}the world no longer was.{#}{/~}
+PANDORAS_BOX_POSTCARD_1=By opening Pandora's Box, {+MADELINE} unleashed evil upon the world. May your gameplay be forever cursed.
+PANDORAS_BOX_POSTCARD_2=But the woman took off the great lid of the jar with her hands and scattered all these and her thought caused sorrow and mischief to men. Only Hope remained there in an unbreakable home within under the rim of the great jar, and did not fly out at the door; for ere that, the lid of the jar stopped her, by the will of Aegis-holding Zeus who gathers the clouds.
+PANDORAS_BOX_POSTCARD_3=You shouldn't have done this.
+PANDORAS_BOX_POSTCARD_4=And this is why you never open cursed boxes given to you by an angry cousin.

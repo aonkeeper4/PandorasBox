@@ -1,0 +1,6 @@
+- Name: PandorasBox
+  Version: 1.0.49
+  DLL: bin/PandorasBox.dll
+  Dependencies:
+    - Name: EverestCore
+      Version: 1.5935.0
