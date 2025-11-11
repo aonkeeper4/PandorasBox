@@ -12,7 +12,7 @@ namespace Celeste.Mod.PandorasBox;
 [Tracked]
 internal class DreamDashController : Entity
 {
-    private class DreamDashControllerComponent(DreamDashController controller, bool setupByController) : Component(false, false)
+    internal class DreamDashControllerComponent(DreamDashController controller, bool setupByController) : Component(false, false)
     {
         public readonly DreamDashController Controller = controller;
         public readonly bool SetupByController = setupByController;
@@ -41,60 +41,52 @@ internal class DreamDashController : Entity
         }
     }
 
-    private readonly bool allowSameDirectionDash;
-    private readonly bool allowDreamDashRedirection;
-    private readonly bool overrideDreamDashSpeed;
-    private readonly bool overrideColors;
-    private readonly bool neverSlowDown;
-    private readonly bool useEntrySpeedAngle;
-    private readonly bool bounceOnCollision;
-    private readonly bool collideStickToWalls;
+    public readonly bool AllowSameDirectionDash;
+    public readonly bool AllowDreamDashRedirection;
+    public readonly bool OverrideDreamDashSpeed;
+    public readonly bool OverrideColors;
+    public readonly bool NeverSlowDown;
+    public readonly bool UseEntrySpeedAngle;
+    public readonly bool BounceOnCollision;
+    public readonly bool CollideStickToWalls;
 
-    private readonly float sameDirectionSpeedMultiplier;
-    private readonly float dreamDashSpeed;
+    public readonly float SameDirectionSpeedMultiplier;
+    public readonly float DreamDashSpeed;
 
-    private readonly Color activeBackColor;
-    private readonly Color disabledBackColor;
-    private readonly Color activeLineColor;
-    private readonly Color disabledLineColor;
-    private readonly List<List<Color>> particleLayerColors;
+    public readonly Color ActiveBackColor;
+    public readonly Color DisabledBackColor;
+    public readonly Color ActiveLineColor;
+    public readonly Color DisabledLineColor;
+    public readonly List<List<Color>> ParticleLayerColors;
 
     // ModInterop stuff
     private static readonly List<Type> SetupIgnoringTypes = [];
     internal static void AddSetupIgnoringTypes(List<Type> types) => SetupIgnoringTypes.AddRange(types);
     internal static void RemoveSetupIgnoringTypes(List<Type> types) => types.ForEach(t => SetupIgnoringTypes.Remove(t));
-    internal (bool, Color, Color, Color, Color, List<List<Color>>) GetVisualSettings()
-        => (overrideColors,
-            activeBackColor,
-            disabledBackColor,
-            activeLineColor,
-            disabledLineColor,
-            particleLayerColors);
-
-    public readonly bool RoomWide;
     
+    private readonly bool roomWide;
     private readonly List<DreamBlock> blocksToSetup = [];
 
     public DreamDashController(EntityData data, Vector2 offset) : base(data.Position + offset)
     {
-        allowSameDirectionDash = data.Bool("allowSameDirectionDash", false);
-        allowDreamDashRedirection = data.Bool("allowDreamDashRedirect", true);
-        overrideDreamDashSpeed = data.Bool("overrideDreamDashSpeed", false);
-        overrideColors = data.Bool("overrideColors", false);
-        neverSlowDown = data.Bool("neverSlowDown", false);
-        useEntrySpeedAngle = data.Bool("useEntrySpeedAngle", false);
-        bounceOnCollision = data.Bool("bounceOnCollision", false);
-        collideStickToWalls = data.Bool("stickOnCollision", false);
+        AllowSameDirectionDash = data.Bool("allowSameDirectionDash", false);
+        AllowDreamDashRedirection = data.Bool("allowDreamDashRedirect", true);
+        OverrideDreamDashSpeed = data.Bool("overrideDreamDashSpeed", false);
+        OverrideColors = data.Bool("overrideColors", false);
+        NeverSlowDown = data.Bool("neverSlowDown", false);
+        UseEntrySpeedAngle = data.Bool("useEntrySpeedAngle", false);
+        BounceOnCollision = data.Bool("bounceOnCollision", false);
+        CollideStickToWalls = data.Bool("stickOnCollision", false);
 
-        sameDirectionSpeedMultiplier = data.Float("sameDirectionSpeedMultiplier", 1.0f);
-        dreamDashSpeed = data.Float("dreamDashSpeed", 240f);
+        SameDirectionSpeedMultiplier = data.Float("sameDirectionSpeedMultiplier", 1.0f);
+        DreamDashSpeed = data.Float("dreamDashSpeed", 240f);
 
-        activeBackColor = ColorHelper.GetColor(data.Attr("activeBackColor", "Black"));
-        disabledBackColor = ColorHelper.GetColor(data.Attr("disabledBackColor", "1f2e2d"));
-        activeLineColor = ColorHelper.GetColor(data.Attr("activeLineColor", "White"));
-        disabledLineColor = ColorHelper.GetColor(data.Attr("disabledLineColor", "6a8480"));
+        ActiveBackColor = ColorHelper.GetColor(data.Attr("activeBackColor", "Black"));
+        DisabledBackColor = ColorHelper.GetColor(data.Attr("disabledBackColor", "1f2e2d"));
+        ActiveLineColor = ColorHelper.GetColor(data.Attr("activeLineColor", "White"));
+        DisabledLineColor = ColorHelper.GetColor(data.Attr("disabledLineColor", "6a8480"));
 
-        particleLayerColors = [
+        ParticleLayerColors = [
             ColorHelper.GetColors(data.Attr("particleLayer0Colors", "ffef11,ff00d0,08a310")),
             ColorHelper.GetColors(data.Attr("particleLayer1Colors", "5fcde4,7fb25e,e0564c")),
             ColorHelper.GetColors(data.Attr("particleLayer2Colors", "5b6ee1,CC3B3B,7daa64"))
@@ -109,12 +101,12 @@ internal class DreamDashController : Entity
             float height = MathF.Max(nodes[0].Y, nodes[1].Y) - topLeftY;
 
             Collider = new Hitbox(width, height, topLeftX - X, topLeftY - Y);
-            RoomWide = false;
+            roomWide = false;
         }
         else
         {
             Collider = null;
-            RoomWide = true;
+            roomWide = true;
         }
     }
     
@@ -124,7 +116,7 @@ internal class DreamDashController : Entity
         
         foreach (DreamBlock block in scene.Tracker.GetEntities<DreamBlock>()
                                                   .Cast<DreamBlock>()
-                                                  .Where(b => RoomWide || CollideCheck(b)))
+                                                  .Where(b => roomWide || CollideCheck(b)))
         {
             bool shouldSetup = !SetupIgnoringTypes.Contains(block.GetType());
                 
@@ -133,7 +125,7 @@ internal class DreamDashController : Entity
                 blocksToSetup.Add(block);
         }
             
-        if (overrideColors)
+        if (OverrideColors)
             AddParticleColors();
     }
     
@@ -151,7 +143,7 @@ internal class DreamDashController : Entity
         for (int i = 0; i < dreamBlock.particles.Length; i++)
         {
             int layer = dreamBlock.particles[i].Layer;
-            dreamBlock.particles[i].Color = Calc.Random.Choose(particleLayerColors[layer]);
+            dreamBlock.particles[i].Color = Calc.Random.Choose(ParticleLayerColors[layer]);
         }
     }
 
@@ -168,8 +160,8 @@ internal class DreamDashController : Entity
             return;
         
         bool sameDirection = Input.GetAimVector() == player.DashDir;
-        bool canRedirect = dreamDashController.allowDreamDashRedirection && !sameDirection
-            || dreamDashController.allowSameDirectionDash && sameDirection;
+        bool canRedirect = dreamDashController.AllowDreamDashRedirection && !sameDirection
+            || dreamDashController.AllowSameDirectionDash && sameDirection;
         if (!canRedirect)
             return;
         
@@ -186,8 +178,8 @@ internal class DreamDashController : Entity
 
         if (sameDirection)
         {
-            player.Speed *= dreamDashController.sameDirectionSpeedMultiplier;
-            player.DashDir *= Math.Sign(dreamDashController.sameDirectionSpeedMultiplier);
+            player.Speed *= dreamDashController.SameDirectionSpeedMultiplier;
+            player.DashDir *= Math.Sign(dreamDashController.SameDirectionSpeedMultiplier);
         }
         else
         {
@@ -204,7 +196,7 @@ internal class DreamDashController : Entity
         if (block?.Get<DreamDashControllerComponent>()?.Controller is not { } dreamDashController)
             return false;
 
-        if (!dreamDashController.bounceOnCollision && !dreamDashController.collideStickToWalls)
+        if (!dreamDashController.BounceOnCollision && !dreamDashController.CollideStickToWalls)
             return false;
         
         Vector2 moveCheckVector = player.Speed * Engine.DeltaTime;
@@ -219,7 +211,7 @@ internal class DreamDashController : Entity
                 // Move the player out of the wall properly, then bounce
                 player.NaiveMove(-moveCheckVector);
 
-                if (dreamDashController.bounceOnCollision)
+                if (dreamDashController.BounceOnCollision)
                     BouncePlayer(player);
                 else
                     StickPlayer(player);
@@ -332,7 +324,7 @@ internal class DreamDashController : Entity
         Vector2 stickSpeed = wallData?.Speed ?? player.Speed;
         player.Remove(wallData);
 
-        if (dreamDashController.useEntrySpeedAngle)
+        if (dreamDashController.UseEntrySpeedAngle)
         {
             Vector2 entryVector = stickSpeed.SafeNormalize();
             float magnitude = stickSpeed.Length();
@@ -346,12 +338,12 @@ internal class DreamDashController : Entity
         if (block?.Get<DreamDashControllerComponent>()?.Controller is not { } dreamDashController)
             return;
             
-        Vector2 dashDirection = dreamDashController.useEntrySpeedAngle ? preEnterSpeed.SafeNormalize() : player.DashDir;
+        Vector2 dashDirection = dreamDashController.UseEntrySpeedAngle ? preEnterSpeed.SafeNormalize() : player.DashDir;
 
-        if (dreamDashController.overrideDreamDashSpeed)
-            player.Speed = dashDirection * dreamDashController.dreamDashSpeed;
+        if (dreamDashController.OverrideDreamDashSpeed)
+            player.Speed = dashDirection * dreamDashController.DreamDashSpeed;
 
-        if (dreamDashController.neverSlowDown && player.Speed.LengthSquared() < preEnterSpeed.LengthSquared())
+        if (dreamDashController.NeverSlowDown && player.Speed.LengthSquared() < preEnterSpeed.LengthSquared())
             player.Speed = dashDirection * preEnterSpeed.Length();
     }
     
@@ -487,13 +479,13 @@ internal class DreamDashController : Entity
 
             Color colorFromController = colorIndex switch
             {
-                0 => controller.activeBackColor,
-                1 => controller.disabledBackColor,
-                2 => controller.activeLineColor,
-                3 => controller.disabledLineColor,
+                0 => controller.ActiveBackColor,
+                1 => controller.DisabledBackColor,
+                2 => controller.ActiveLineColor,
+                3 => controller.DisabledLineColor,
                 _ => throw new ArgumentOutOfRangeException()
             };
-            return component.SetupByController && controller.overrideColors ? colorFromController : orig;
+            return component.SetupByController && controller.OverrideColors ? colorFromController : orig;
         }
     }
 

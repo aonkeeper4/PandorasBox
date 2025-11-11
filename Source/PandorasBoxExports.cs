@@ -23,10 +23,17 @@ public static class PandorasBoxExports
         public static void RemoveSetupIgnoringTypes(List<Type> types)
             => DreamDashController.RemoveSetupIgnoringTypes(types);
 
-        public static (bool, Color, Color, Color, Color, List<List<Color>>)? GetVisualSettingsFor(Entity entity)
-            => entity.Scene.Tracker.GetEntities<DreamDashController>()
-                                   .Cast<DreamDashController>()
-                                   .FirstOrDefault(controller => controller.RoomWide || controller.CollideCheck(entity))?
-                                   .GetVisualSettings();
+        public static (Color?, Color?, Color?, Color?, List<List<Color>>) GetVisualSettingsFor(Entity entity)
+        {
+            DreamDashController controller = entity.Get<DreamDashController.DreamDashControllerComponent>()?.Controller;
+            if (controller is not { OverrideColors: true})
+                return default;
+            
+            return (controller.ActiveBackColor,
+                controller.DisabledBackColor,
+                controller.ActiveLineColor,
+                controller.DisabledLineColor,
+                controller.ParticleLayerColors);
+        }
     }
 }
