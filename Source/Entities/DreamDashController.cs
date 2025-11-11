@@ -120,7 +120,7 @@ internal class DreamDashController : Entity
         
         foreach (DreamBlock block in scene.Tracker.GetEntities<DreamBlock>()
                                                   .Cast<DreamBlock>()
-                                                  .Where(b => roomWide || CollideCheck(b)))
+                                                  .Where(IsAffected))
         {
             bool shouldSetup = !SetupIgnoringTypes.Contains(block.GetType());
                 
@@ -129,12 +129,16 @@ internal class DreamDashController : Entity
                 blocksToSetup.Add(block);
         }
 
-        foreach (Entity entity in ControlledTypes.SelectMany(t => scene.Entities.Where(e => e.GetType() == t)))
+        foreach (Entity entity in ControlledTypes.SelectMany(t => scene.Entities.Where(e => e.GetType() == t))
+                                                 .Where(IsAffected))
             entity.Add(new DreamDashControllerComponent(this, false));
             
         if (OverrideColors)
             AddParticleColors();
     }
+
+    private bool IsAffected(Entity e)
+        => roomWide || CollideCheck(e) || Collider.Bounds.Contains(new Point((int) e.Position.X, (int) e.Position.Y));
     
     private void AddParticleColors()
     {

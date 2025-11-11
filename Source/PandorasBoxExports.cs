@@ -47,7 +47,7 @@ public static class PandorasBoxExports
         public static (Color?, Color?, Color?, Color?, List<List<Color>>) GetVisualSettingsFor(Entity entity)
         {
             DreamDashController controller = entity.Get<DreamDashController.DreamDashControllerComponent>()?.Controller;
-            if (controller is not { OverrideColors: true})
+            if (controller is not { OverrideColors: true })
                 return default;
             
             return (controller.ActiveBackColor,
