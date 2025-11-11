@@ -26,7 +26,7 @@ public static class PandorasBoxExports
         public static (bool, Color, Color, Color, Color, List<List<Color>>)? GetVisualSettingsFor(Entity entity)
             => entity.Scene.Tracker.GetEntities<DreamDashController>()
                                    .Cast<DreamDashController>()
-                                   .FirstOrDefault(controller => controller.Collider is null || controller.CollideCheck(entity))?
+                                   .FirstOrDefault(controller => controller.RoomWide || controller.CollideCheck(entity))?
                                    .GetVisualSettings();
     }
 }

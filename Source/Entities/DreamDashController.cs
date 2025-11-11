@@ -3,7 +3,6 @@ using Microsoft.Xna.Framework;
 using Monocle;
 using MonoMod.Cil;
 using System;
-using System.Runtime.CompilerServices;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -26,7 +25,22 @@ internal class DreamDashController : Entity
             base.Added(entity);
         }
     }
+
+    private class WallDataComponent(float? rotation = null, Vector2? renderOffset = null, Vector2? speed = null) : Component(false, false)
+    {
+        public float? Rotation = rotation;
+        public Vector2? RenderOffset = renderOffset;
+        public Vector2? Speed = speed;
         
+        public override void Added(Entity entity)
+        {
+            if (entity is not Player)
+                throw new InvalidOperationException($"{nameof(WallDataComponent)} added to non-{nameof(Player)} entity!");
+                
+            base.Added(entity);
+        }
+    }
+
     private readonly bool allowSameDirectionDash;
     private readonly bool allowDreamDashRedirection;
     private readonly bool overrideDreamDashSpeed;
@@ -56,11 +70,9 @@ internal class DreamDashController : Entity
             activeLineColor,
             disabledLineColor,
             particleLayerColors);
-        
-    private static readonly ConditionalWeakTable<Player, ValueHolder<float>> WallPlayerRotations = new();
-    private static readonly ConditionalWeakTable<Player, ValueHolder<Vector2>> WallPlayerRenderOffset = new();
-    private static readonly ConditionalWeakTable<Player, ValueHolder<Vector2>> WallPlayerSpeed = new();
 
+    public readonly bool RoomWide;
+    
     private readonly List<DreamBlock> blocksToSetup = [];
 
     public DreamDashController(EntityData data, Vector2 offset) : base(data.Position + offset)
@@ -97,142 +109,159 @@ internal class DreamDashController : Entity
             float height = MathF.Max(nodes[0].Y, nodes[1].Y) - topLeftY;
 
             Collider = new Hitbox(width, height, topLeftX - X, topLeftY - Y);
+            RoomWide = false;
         }
         else
+        {
             Collider = null;
+            RoomWide = true;
+        }
+    }
+    
+    public override void Awake(Scene scene)
+    {
+        base.Awake(scene);
+        
+        foreach (DreamBlock block in scene.Tracker.GetEntities<DreamBlock>()
+                                                  .Cast<DreamBlock>()
+                                                  .Where(b => RoomWide || CollideCheck(b)))
+        {
+            bool shouldSetup = !SetupIgnoringTypes.Contains(block.GetType());
+                
+            block.Add(new DreamDashControllerComponent(this, shouldSetup));
+            if (shouldSetup)
+                blocksToSetup.Add(block);
+        }
+            
+        if (overrideColors)
+            AddParticleColors();
+    }
+    
+    private void AddParticleColors()
+    {
+        foreach (DreamBlock dreamBlock in blocksToSetup.Where(block => block.SceneAs<Level>().IsInBounds(block)))
+            ChangeDreamBlockParticleColors(dreamBlock);
+    }
+
+    private void ChangeDreamBlockParticleColors(DreamBlock dreamBlock)
+    {
+        if (dreamBlock.particles is null)
+            return;
+        
+        for (int i = 0; i < dreamBlock.particles.Length; i++)
+        {
+            int layer = dreamBlock.particles[i].Layer;
+            dreamBlock.particles[i].Color = Calc.Random.Choose(particleLayerColors[layer]);
+        }
     }
 
     private static void DreamDashRedirect(DreamBlock block, Player player)
     {
         if (block?.Get<DreamDashControllerComponent>()?.Controller is not { } dreamDashController)
             return;
-            
-        if (player.StateMachine.State == Player.StDreamDash)
-        {
-            player.dashCooldownTimer = 0f;
 
-            if (player.CanDash)
-            {
-                bool sameDirection = Input.GetAimVector() == player.DashDir;
+        if (player.StateMachine.State != Player.StDreamDash)
+            return;
+        
+        player.dashCooldownTimer = 0f;
+        if (!player.CanDash)
+            return;
+        
+        bool sameDirection = Input.GetAimVector() == player.DashDir;
+        bool canRedirect = dreamDashController.allowDreamDashRedirection && !sameDirection
+            || dreamDashController.allowSameDirectionDash && sameDirection;
+        if (!canRedirect)
+            return;
+        
+        Audio.Play("event:/char/madeline/dreamblock_enter");
+        
+        player.Dashes = Math.Max(0, player.Dashes - 1);
 
-                if (dreamDashController.allowDreamDashRedirection && !sameDirection || dreamDashController.allowSameDirectionDash && sameDirection)
-                {
-                    player.Dashes = Math.Max(0, player.Dashes - 1);
-
-                    Audio.Play("event:/char/madeline/dreamblock_enter");
-
-                    // Freeze game when redirecting dash
-                    // Consistent with dashing in the base game
+        // Freeze game when redirecting dash
+        // Consistent with dashing in the base game
 #pragma warning disable CS0618 // Type or member is obsolete
-                    if (Engine.TimeRate > 0.25f)
+        if (Engine.TimeRate > 0.25f)
 #pragma warning restore CS0618 // Type or member is obsolete
-                    {
-                        Celeste.Freeze(0.05f);
-                    }
+            Celeste.Freeze(0.05f);
 
-                    if (sameDirection)
-                    {
-                        player.Speed *= dreamDashController.sameDirectionSpeedMultiplier;
-                        player.DashDir *= Math.Sign(dreamDashController.sameDirectionSpeedMultiplier);
-                    }
-                    else
-                    {
-                        player.DashDir = Input.GetAimVector();
-                        player.Speed = player.DashDir * player.Speed.Length();
-                    }
-
-                    Input.Dash.ConsumeBuffer();
-                }
-            }
+        if (sameDirection)
+        {
+            player.Speed *= dreamDashController.sameDirectionSpeedMultiplier;
+            player.DashDir *= Math.Sign(dreamDashController.sameDirectionSpeedMultiplier);
         }
+        else
+        {
+            player.DashDir = Input.GetAimVector();
+            player.Speed = player.DashDir * player.Speed.Length();
+        }
+
+        Input.Dash.ConsumeBuffer();
     }
 
     // Do a bounce check and bounce if possible
-    public static bool AttemptBounce(DreamBlock block, Player player)
+    private static bool AttemptBounce(DreamBlock block, Player player)
     {
         if (block?.Get<DreamDashControllerComponent>()?.Controller is not { } dreamDashController)
             return false;
-            
-        if (dreamDashController.bounceOnCollision || dreamDashController.collideStickToWalls)
+
+        if (!dreamDashController.bounceOnCollision && !dreamDashController.collideStickToWalls)
+            return false;
+        
+        Vector2 moveCheckVector = player.Speed * Engine.DeltaTime;
+        player.NaiveMove(moveCheckVector);
+
+        DreamBlock dreamBlock = player.CollideFirst<DreamBlock>();
+        if (dreamBlock is null)
         {
-            Vector2 moveCheckVector = player.Speed * Engine.DeltaTime;
-
-            player.NaiveMove(moveCheckVector);
-
-            DreamBlock dreamBlock = player.CollideFirst<DreamBlock>();
-
-            if (dreamBlock == null)
+            bool inSolid = player.DreamDashedIntoSolid();
+            if (inSolid)
             {
-                bool inSolid = player.DreamDashedIntoSolid();
-                if (inSolid)
-                {
-                    // Move the player out of the wall properly, then bounce
-                    player.NaiveMove(-moveCheckVector);
+                // Move the player out of the wall properly, then bounce
+                player.NaiveMove(-moveCheckVector);
 
-                    if (dreamDashController.bounceOnCollision)
-                    {
-                        BouncePlayer(player);
-                    }
-                    else
-                    {
-                        StickPlayer(player);
-                    }
+                if (dreamDashController.bounceOnCollision)
+                    BouncePlayer(player);
+                else
+                    StickPlayer(player);
 
-                    return true;
-                }
+                return true;
             }
-
-            // Make sure we undo the check movement
-            player.NaiveMove(-moveCheckVector);
         }
+
+        // Make sure we undo the check movement
+        player.NaiveMove(-moveCheckVector);
 
         return false;
     }
 
-    private static bool OutsideAfterMove(Player player, Vector2 offset)
-    {
-        player.NaiveMove(offset);
-        bool outside = player.CollideFirst<DreamBlock>() == null;
-        player.NaiveMove(-offset);
-
-        return outside;
-    }
-
     private static void BouncePlayer(Player player)
     {
-        Vector2 horizontalMoveCheckVector = new Vector2(player.Speed.X * Engine.DeltaTime, 0f);
-        Vector2 verticalMoveCheckVector = new Vector2(0f, player.Speed.Y * Engine.DeltaTime);
+        Vector2 horizontalMoveCheckVector = new(player.Speed.X * Engine.DeltaTime, 0f);
+        Vector2 verticalMoveCheckVector = new(0f, player.Speed.Y * Engine.DeltaTime);
 
         bool horizontal = OutsideAfterMove(player, horizontalMoveCheckVector);
         bool vertical = OutsideAfterMove(player, verticalMoveCheckVector);
 
         if (horizontal)
-        {
             player.Speed.X *= -1;
-        }
-            
         if (vertical)
-        {
             player.Speed.Y *= -1;
-        }
     }
 
     private static void StickPlayer(Player player)
     {
         DreamBlock dreamBlock = player.CollideFirst<DreamBlock>();
-
-        if (dreamBlock == null)
-        {
+        if (dreamBlock is null)
             return;
-        }
 
-        WallPlayerSpeed.AddOrUpdate(player, new ValueHolder<Vector2>(player.Speed));
+        if (player.Get<WallDataComponent>() is not { } wallData)
+            player.Add(wallData = new WallDataComponent(speed: player.Speed));
 
         Collider playerCollider = player.Collider;
         Collider dreamBlockCollider = dreamBlock.Collider;
 
-        Vector2 horizontalMoveCheckVector = new Vector2(player.Speed.X * Engine.DeltaTime, 0f);
-        Vector2 verticalMoveCheckVector = new Vector2(0f, player.Speed.Y * Engine.DeltaTime);
+        Vector2 horizontalMoveCheckVector = new(player.Speed.X * Engine.DeltaTime, 0f);
+        Vector2 verticalMoveCheckVector = new(0f, player.Speed.Y * Engine.DeltaTime);
 
         bool horizontal = OutsideAfterMove(player, horizontalMoveCheckVector);
         bool vertical = OutsideAfterMove(player, verticalMoveCheckVector);
@@ -244,20 +273,20 @@ internal class DreamDashController : Entity
         float moveOffsetY = 0f;
         float renderOffsetX = 0f;
         float renderOffsetY = 0f;
-        double rotation = 0.0;
+        float rotation = 0f;
 
         if (horizontal)
         {
             if (player.Speed.X < 0)
             {
-                rotation = Math.PI / 2;
+                rotation = MathF.PI / 2;
                 moveOffsetX = dreamBlockCollider.AbsoluteLeft - player.X + playerCollider.Width / 2.0f;
                 renderOffsetX = -playerCollider.Width / 2.0f;
                 renderOffsetY = -playerCollider.Height / 2.0f;
             }
             else
             {
-                rotation = Math.PI * 3 / 2;
+                rotation = MathF.PI * 3 / 2;
                 moveOffsetX = dreamBlockCollider.AbsoluteRight - player.X - playerCollider.Width / 2.0f;
                 renderOffsetX = playerCollider.Width / 2.0f;
                 renderOffsetY = -playerCollider.Height / 2.0f;
@@ -268,33 +297,40 @@ internal class DreamDashController : Entity
         {
             if (player.Speed.Y < 0)
             {
-                rotation = Math.PI;
+                rotation = MathF.PI;
                 moveOffsetY = dreamBlockCollider.AbsoluteTop - player.Y + playerCollider.Height - 1;
                 renderOffsetY = -playerCollider.Height;
             }
             else
             {
-                rotation = 0.0;
+                rotation = 0f;
                 moveOffsetY = dreamBlockCollider.AbsoluteBottom - player.Y + 1;
             }
         }
 
-        WallPlayerRotations.AddOrUpdate(player, new ValueHolder<float>((float)rotation));
-        WallPlayerRenderOffset.AddOrUpdate(player, new ValueHolder<Vector2>(new Vector2(renderOffsetX, renderOffsetY)));
+        wallData.Rotation = rotation;
+        wallData.RenderOffset = new Vector2(renderOffsetX, renderOffsetY);
 
         player.NaiveMove(new Vector2(moveOffsetX, moveOffsetY));
+    }
+    
+    private static bool OutsideAfterMove(Player player, Vector2 offset)
+    {
+        player.NaiveMove(offset);
+        bool outside = player.CollideFirst<DreamBlock>() is null;
+        player.NaiveMove(-offset);
+
+        return outside;
     }
 
     private static void DreamDashStartBefore(DreamBlock block, Player player)
     {
         if (block?.Get<DreamDashControllerComponent>()?.Controller is not { } dreamDashController)
             return;
-            
-        Vector2 stickSpeed = WallPlayerSpeed.GetOrDefault(player, new ValueHolder<Vector2>(player.Speed)).value;
 
-        WallPlayerRenderOffset.Remove(player);
-        WallPlayerRotations.Remove(player);
-        WallPlayerSpeed.Remove(player);
+        WallDataComponent wallData = player.Get<WallDataComponent>();
+        Vector2 stickSpeed = wallData?.Speed ?? player.Speed;
+        player.Remove(wallData);
 
         if (dreamDashController.useEntrySpeedAngle)
         {
@@ -313,231 +349,151 @@ internal class DreamDashController : Entity
         Vector2 dashDirection = dreamDashController.useEntrySpeedAngle ? preEnterSpeed.SafeNormalize() : player.DashDir;
 
         if (dreamDashController.overrideDreamDashSpeed)
-        {
             player.Speed = dashDirection * dreamDashController.dreamDashSpeed;
-        }
 
-        if (dreamDashController.neverSlowDown)
-        {
-            if (player.Speed.LengthSquared() < preEnterSpeed.LengthSquared())
-            {
-                player.Speed = dashDirection * preEnterSpeed.Length();
-            }
-        }
+        if (dreamDashController.neverSlowDown && player.Speed.LengthSquared() < preEnterSpeed.LengthSquared())
+            player.Speed = dashDirection * preEnterSpeed.Length();
     }
-
-    private void AddParticleColors(Scene scene)
-    {
-        Level level = (scene as Level)!;
-
-        foreach (DreamBlock dreamBlock in blocksToSetup.Where(block => level.IsInBounds(block)))
-        {
-            ChangeDreamBlockParticleColors(dreamBlock);
-        }
-    }
-
-    private void ChangeDreamBlockParticleColors(DreamBlock dreamBlock)
-    {
-        if (dreamBlock.particles != null)
-        {
-            for (int i = 0; i < dreamBlock.particles.Length; i++)
-            {
-                int layer = dreamBlock.particles[i].Layer;
-                dreamBlock.particles[i].Color = Calc.Random.Choose(particleLayerColors[layer]);
-            }
-        }
-    }
-
-    public override void Awake(Scene scene)
-    {
-        foreach (DreamBlock block in scene.Tracker.GetEntities<DreamBlock>()
-                                          .Cast<DreamBlock>()
-                                          .Where(b => Collider is null || CollideCheck(b)))
-        {
-            bool shouldSetup = !SetupIgnoringTypes.Contains(block.GetType());
-                
-            block.Add(new DreamDashControllerComponent(this, shouldSetup));
-            if (shouldSetup)
-                blocksToSetup.Add(block);
-        }
-            
-        if (overrideColors)
-        {
-            AddParticleColors(scene);
-        }
-
-        base.Awake(scene);
-    }
+    
+    #region Hooks
 
     private static int Player_DreamDashUpdate(On.Celeste.Player.orig_DreamDashUpdate orig, Player self)
-    {
-        bool bounced = AttemptBounce(self.dreamBlock, self);
-
-        if (bounced)
-        {
-            return self.StateMachine.State;
-        }
-        else
-        {
-            return orig(self);
-        }
-    }
+        => AttemptBounce(self.dreamBlock, self) ? self.StateMachine.State : orig(self);
 
     private static void Player_DreamDashBegin(On.Celeste.Player.orig_DreamDashBegin orig, Player self)
     {
-        DreamBlock currentBlock = self.CollideFirst<DreamBlock>(self.Position + self.Speed.Sign());
-            
-        DreamDashStartBefore(currentBlock, self);
+        DreamDashStartBefore(self.dreamBlock, self);
         Vector2 beforeSpeed = self.Speed;
 
         orig(self);
 
-        DreamDashStartAfter(currentBlock, self, beforeSpeed);
+        DreamDashStartAfter(self.dreamBlock, self, beforeSpeed);
     }
 
     private static void Player_Update(On.Celeste.Player.orig_Update orig, Player self)
     {
-        if (self.dreamBlock != null)
-        {
-            if (Input.Dash.Pressed && Input.Aim.Value != Vector2.Zero)
-            {
-                DreamDashRedirect(self.dreamBlock, self);
-            }
-        }
+        if (self.dreamBlock is not null && Input.Dash.Pressed && Input.Aim.Value != Vector2.Zero)
+            DreamDashRedirect(self.dreamBlock, self);
 
         Facings preOrigFacing = self.Facing;
         Vector2 preOrigScale = self.Sprite.Scale;
 
         orig(self);
 
-        if (WallPlayerRotations.TryGetValue(self, out var rotationHolder))
-        {
-            self.Facing = preOrigFacing;
-            self.Sprite.Scale = preOrigScale;
+        if (self.Get<WallDataComponent>()?.Rotation is not { } rotation)
+            return;
+        
+        self.Facing = preOrigFacing;
+        self.Sprite.Scale = preOrigScale;
 
-            Vector2 inputAim = Input.Aim.Value;
+        Vector2 inputAim = Input.Aim.Value;
+        if (inputAim == Vector2.Zero)
+            return;
+        
+        float inputAngleOffset = (inputAim.Angle() - rotation + MathHelper.TwoPi) % MathHelper.TwoPi;
+        Facings newFacing = self.Facing;
 
-            if (inputAim != Vector2.Zero)
-            {
-                float inputAngleOffset = (inputAim.Angle() - rotationHolder!.value + MathHelper.TwoPi) % MathHelper.TwoPi;
-                Facings newFacing = self.Facing;
+        if (inputAngleOffset >= Math.PI * 0.75 && inputAngleOffset <= Math.PI * 1.25)
+            newFacing = Facings.Left;
+        else if (inputAngleOffset >= Math.PI * -0.25 && inputAngleOffset <= Math.PI * 0.25
+            || inputAngleOffset - MathHelper.TwoPi >= Math.PI * -0.25 && inputAngleOffset - MathHelper.TwoPi <= Math.PI * 0.25)
+            newFacing = Facings.Right;
 
-                if (inputAngleOffset >= Math.PI * 0.75 && inputAngleOffset <= Math.PI * 1.25)
-                {
-                    newFacing = Facings.Left;
-                }
-                else if (inputAngleOffset >= Math.PI * -0.25 && inputAngleOffset <= Math.PI * 0.25 || inputAngleOffset - MathHelper.TwoPi >= Math.PI * -0.25 && inputAngleOffset - MathHelper.TwoPi <= Math.PI * 0.25)
-                {
-                    newFacing = Facings.Right;
-                }
-
-                self.Facing = newFacing;
-            }
-        }
+        self.Facing = newFacing;
     }
 
     private static void Player_Render(On.Celeste.Player.orig_Render orig, Player self)
     {
-        Level level = self.Scene as Level;
+        Level level = self.SceneAs<Level>();
+        
+        WallDataComponent wallData = self.Get<WallDataComponent>();
+        float playerRotation = wallData?.Rotation ?? 0f;
+        Vector2 renderOffset = wallData?.RenderOffset ?? Vector2.Zero;
 
-        float playerRotation = WallPlayerRotations.GetOrDefault(self, new ValueHolder<float>(0f)).value;
-        Vector2 renderOffset = WallPlayerRenderOffset.GetOrDefault(self, new ValueHolder<Vector2>(new Vector2(0f, 0f))).value;
-
-        if (level != null && playerRotation != 0f) {
-            Camera camera = level.Camera;
-
-            float originalAngle = camera.Angle;
-            Vector2 originalCameraPosition = camera.Position;
-            Vector2 originalCameraOrigin = camera.Origin;
-            Vector2 originalPlayerPosition = self.Sprite.Position;
-
-            GameplayRenderer.End();
-            camera.Angle = playerRotation;
-            camera.Origin = self.Position + renderOffset - camera.Position;
-            camera.Position += camera.Origin;
-            self.Sprite.Position += renderOffset;
-            self.Hair.MoveHairBy(renderOffset);
-            GameplayRenderer.Begin();
-
-            orig(self);
-
-            GameplayRenderer.End();
-            camera.Angle = originalAngle;
-            camera.Origin = originalCameraOrigin;
-            camera.Position = originalCameraPosition;
-            self.Sprite.Position = originalPlayerPosition;
-            self.Hair.MoveHairBy(-renderOffset);
-            GameplayRenderer.Begin();
-        }
-        else
+        if (level is null || playerRotation == 0f)
         {
             orig(self);
+            return;
         }
+
+        Camera camera = level.Camera;
+
+        float originalAngle = camera.Angle;
+        Vector2 originalCameraPosition = camera.Position;
+        Vector2 originalCameraOrigin = camera.Origin;
+        Vector2 originalPlayerPosition = self.Sprite.Position;
+
+        GameplayRenderer.End();
+        camera.Angle = playerRotation;
+        camera.Origin = self.Position + renderOffset - camera.Position;
+        camera.Position += camera.Origin;
+        self.Sprite.Position += renderOffset;
+        self.Hair.MoveHairBy(renderOffset);
+        GameplayRenderer.Begin();
+
+        orig(self);
+
+        GameplayRenderer.End();
+        camera.Angle = originalAngle;
+        camera.Origin = originalCameraOrigin;
+        camera.Position = originalCameraPosition;
+        self.Sprite.Position = originalPlayerPosition;
+        self.Hair.MoveHairBy(-renderOffset);
+        GameplayRenderer.Begin();
     }
 
     private static void ModifyDreamBlockColors(ILContext il)
     {
         ILCursor cursor = new(il);
 
+        // back colors
         while (cursor.TryGotoNext(MoveType.After, instr => instr.MatchLdsfld(typeof(DreamBlock), "activeBackColor")))
         {
             cursor.EmitLdarg0();
-            cursor.EmitDelegate(GetActiveBackColor);
+            cursor.EmitLdcI4(0);
+            cursor.EmitDelegate(GetColorFromController);
         }
         cursor.Index = 0;
-            
         while (cursor.TryGotoNext(MoveType.After, instr => instr.MatchLdsfld(typeof(DreamBlock), "disabledBackColor")))
         {
             cursor.EmitLdarg0();
-            cursor.EmitDelegate(GetDisabledBackColor);
+            cursor.EmitLdcI4(1);
+            cursor.EmitDelegate(GetColorFromController);
         }
         cursor.Index = 0;
-            
+        
+        // line colors
         while (cursor.TryGotoNext(MoveType.After, instr => instr.MatchLdsfld(typeof(DreamBlock), "activeLineColor")))
         {
             cursor.EmitLdarg0();
-            cursor.EmitDelegate(GetActiveLineColor);
+            cursor.EmitLdcI4(2);
+            cursor.EmitDelegate(GetColorFromController);
         }
         cursor.Index = 0;
-            
         while (cursor.TryGotoNext(MoveType.After, instr => instr.MatchLdsfld(typeof(DreamBlock), "disabledLineColor")))
         {
             cursor.EmitLdarg0();
-            cursor.EmitDelegate(GetDisabledLineColor);
+            cursor.EmitLdcI4(3);
+            cursor.EmitDelegate(GetColorFromController);
         }
+        cursor.Index = 0;
 
         return;
 
-        static Color GetActiveBackColor(Color orig, DreamBlock block)
+        static Color GetColorFromController(Color orig, DreamBlock block, int colorIndex)
         {
-            if (block?.Get<DreamDashControllerComponent>() is not { } component)
+            if (block?.Get<DreamDashControllerComponent>() is not { Controller: { } controller } component)
                 return orig;
 
-            return component.SetupByController && component.Controller.overrideColors ? component.Controller.activeBackColor : orig;
-        }
-            
-        static Color GetDisabledBackColor(Color orig, DreamBlock block)
-        {
-            if (block?.Get<DreamDashControllerComponent>() is not { } component)
-                return orig;
-
-            return component.SetupByController && component.Controller.overrideColors ? component.Controller.disabledBackColor : orig;
-        }
-            
-        static Color GetActiveLineColor(Color orig, DreamBlock block)
-        {
-            if (block?.Get<DreamDashControllerComponent>() is not { } component)
-                return orig;
-
-            return component.SetupByController && component.Controller.overrideColors ? component.Controller.activeLineColor : orig;
-        }
-            
-        static Color GetDisabledLineColor(Color orig, DreamBlock block)
-        {
-            if (block?.Get<DreamDashControllerComponent>() is not { } component)
-                return orig;
-
-            return component.SetupByController && component.Controller.overrideColors ? component.Controller.disabledLineColor : orig;
+            Color colorFromController = colorIndex switch
+            {
+                0 => controller.activeBackColor,
+                1 => controller.disabledBackColor,
+                2 => controller.activeLineColor,
+                3 => controller.disabledLineColor,
+                _ => throw new ArgumentOutOfRangeException()
+            };
+            return component.SetupByController && controller.overrideColors ? colorFromController : orig;
         }
     }
 
@@ -562,4 +518,6 @@ internal class DreamDashController : Entity
         IL.Celeste.DreamBlock.Render -= ModifyDreamBlockColors;
         IL.Celeste.DreamBlock.WobbleLine -= ModifyDreamBlockColors;
     }
+    
+    #endregion
 }
