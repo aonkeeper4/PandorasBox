@@ -5,14 +5,14 @@ namespace Celeste.Mod.PandorasBox;
 public class PandorasBoxModule : EverestModule {
     public static PandorasBoxModule Instance { get; private set; }
 
-    public override Type SettingsType => typeof(PandorasBoxModuleuleSettings);
-    public static PandorasBoxModuleuleSettings Settings => (PandorasBoxModuleuleSettings) Instance._Settings;
+    public override Type SettingsType => typeof(PandorasBoxModuleSettings);
+    public static PandorasBoxModuleSettings Settings => (PandorasBoxModuleSettings) Instance._Settings;
 
-    public override Type SessionType => typeof(PandorasBoxModuleuleSession);
-    public static PandorasBoxModuleuleSession Session => (PandorasBoxModuleuleSession) Instance._Session;
+    public override Type SessionType => typeof(PandorasBoxModuleSession);
+    public static PandorasBoxModuleSession Session => (PandorasBoxModuleSession) Instance._Session;
 
-    public override Type SaveDataType => typeof(PandorasBoxModuleuleSaveData);
-    public static PandorasBoxModuleuleSaveData SaveData => (PandorasBoxModuleuleSaveData) Instance._SaveData;
+    public override Type SaveDataType => typeof(PandorasBoxModuleSaveData);
+    public static PandorasBoxModuleSaveData SaveData => (PandorasBoxModuleSaveData) Instance._SaveData;
 
     public const string LoggerTag = "Pandora's Box";
 
@@ -36,6 +36,8 @@ public class PandorasBoxModule : EverestModule {
 
     public override void Load()
     {
+        PandorasBoxExports.Initialize();
+        
         CloneSpawner.Load();
         WaterDrowningController.Load();
         TimeField.Load();

@@ -196,6 +196,7 @@ entities.pandorasBox/flagToggleSwitch.attributes.description.flag=Which flag the
 
 # Dream Dash Controller
 entities.pandorasBox/dreamDashController.placements.name.controller=Dream Dash Controller
+entities.pandorasBox/dreamDashController.placements.name.controller_area=Dream Dash Area Controller
 entities.pandorasBox/dreamDashController.attributes.description.allowSameDirectionDash=If the player should be able to dash in the direction they are currently dashing.
 entities.pandorasBox/dreamDashController.attributes.description.allowDreamDashRedirect=If the player should be able to dash in a new direction while in space jam.
 entities.pandorasBox/dreamDashController.attributes.description.overrideDreamDashSpeed=Whether the space jam should use custom speed.

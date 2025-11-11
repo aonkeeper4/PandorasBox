@@ -1,5 +1,5 @@
 namespace Celeste.Mod.PandorasBox;
 
-public class PandorasBoxModuleuleSession : EverestModuleSession {
+public class PandorasBoxModuleSession : EverestModuleSession {
 
 }
