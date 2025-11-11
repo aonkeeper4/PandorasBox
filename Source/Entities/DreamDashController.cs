@@ -64,6 +64,10 @@ internal class DreamDashController : Entity
     internal static void AddSetupIgnoringTypes(List<Type> types) => SetupIgnoringTypes.AddRange(types);
     internal static void RemoveSetupIgnoringTypes(List<Type> types) => types.ForEach(t => SetupIgnoringTypes.Remove(t));
     
+    private static readonly List<Type> ControlledTypes = [];
+    internal static void AddControlledTypes(List<Type> types) => ControlledTypes.AddRange(types);
+    internal static void RemoveControlledTypes(List<Type> types) => types.ForEach(t => ControlledTypes.Remove(t));
+    
     private readonly bool roomWide;
     private readonly List<DreamBlock> blocksToSetup = [];
 
@@ -124,6 +128,9 @@ internal class DreamDashController : Entity
             if (shouldSetup)
                 blocksToSetup.Add(block);
         }
+
+        foreach (Entity entity in ControlledTypes.SelectMany(t => scene.Entities.Where(e => e.GetType() == t)))
+            entity.Add(new DreamDashControllerComponent(this, false));
             
         if (OverrideColors)
             AddParticleColors();
