@@ -1,5 +1,7 @@
 ﻿using Celeste.Mod.Entities;
+using Celeste.Mod.Helpers;
 using Microsoft.Xna.Framework;
+using Mono.Cecil.Cil;
 using Monocle;
 using MonoMod.Cil;
 using System;
@@ -16,11 +18,11 @@ internal class DreamDashController : Entity
     {
         public readonly DreamDashController Controller = controller;
         public readonly bool SetupByController = setupByController;
-
+        
         public override void Added(Entity entity)
         {
-            if (entity is not DreamBlock)
-                throw new InvalidOperationException($"{nameof(DreamDashControllerComponent)} added to non-{nameof(DreamBlock)} entity!");
+            if (SetupByController && entity is not DreamBlock)
+                throw new InvalidOperationException($"{nameof(DreamDashControllerComponent)} cannot be setup by controller when not on a non-{nameof(DreamBlock)} entity!");
                 
             base.Added(entity);
         }
@@ -60,16 +62,15 @@ internal class DreamDashController : Entity
     public readonly List<List<Color>> ParticleLayerColors;
 
     // ModInterop stuff
-    private static readonly List<Type> SetupIgnoringTypes = [];
+    internal static readonly List<Type> SetupIgnoringTypes = [];
     internal static void AddSetupIgnoringTypes(List<Type> types) => SetupIgnoringTypes.AddRange(types);
     internal static void RemoveSetupIgnoringTypes(List<Type> types) => types.ForEach(t => SetupIgnoringTypes.Remove(t));
     
-    private static readonly List<Type> ControlledTypes = [];
+    internal static readonly List<Type> ControlledTypes = [];
     internal static void AddControlledTypes(List<Type> types) => ControlledTypes.AddRange(types);
     internal static void RemoveControlledTypes(List<Type> types) => types.ForEach(t => ControlledTypes.Remove(t));
     
     private readonly bool roomWide;
-    private readonly List<DreamBlock> blocksToSetup = [];
 
     public DreamDashController(EntityData data, Vector2 offset) : base(data.Position + offset)
     {
@@ -114,36 +115,37 @@ internal class DreamDashController : Entity
         }
     }
     
-    public override void Awake(Scene scene)
+    private void Process(Entity entity)
     {
-        base.Awake(scene);
+        if (!IsAffected(entity))
+            return;
         
-        foreach (DreamBlock block in scene.Tracker.GetEntities<DreamBlock>()
-                                                  .Cast<DreamBlock>()
-                                                  .Where(IsAffected))
-        {
-            bool shouldSetup = !SetupIgnoringTypes.Contains(block.GetType());
-                
+        Type type = entity.GetType();
+        
+        if (entity is DreamBlock block)
+        { 
+            bool shouldSetup = !SetupIgnoringTypes.Contains(type);
+            
             block.Add(new DreamDashControllerComponent(this, shouldSetup));
-            if (shouldSetup)
-                blocksToSetup.Add(block);
+            if (shouldSetup && OverrideColors)
+                ChangeDreamBlockParticleColors(block);
+
+            return;
         }
 
-        foreach (Entity entity in scene.Entities.Where(e => ControlledTypes.Contains(e.GetType()))
-                                                .Where(IsAffected))
+        if (ControlledTypes.Contains(type))
             entity.Add(new DreamDashControllerComponent(this, false));
-            
-        if (OverrideColors)
-            AddParticleColors();
     }
 
     private bool IsAffected(Entity e)
-        => roomWide || CollideCheck(e) || CollidePoint(e.Position);
-    
-    private void AddParticleColors()
     {
-        foreach (DreamBlock dreamBlock in blocksToSetup.Where(block => block.SceneAs<Level>().IsInBounds(block)))
-            ChangeDreamBlockParticleColors(dreamBlock);
+        bool collidable = e.Collidable;
+        
+        e.Collidable = true;
+        bool result = roomWide || CollideCheck(e) || CollidePoint(e.Position);
+        e.Collidable = collidable;
+
+        return result;
     }
 
     private void ChangeDreamBlockParticleColors(DreamBlock dreamBlock)
@@ -499,6 +501,49 @@ internal class DreamDashController : Entity
             return component.SetupByController && controller.OverrideColors ? colorFromController : orig;
         }
     }
+    
+    private static void EntityList_UpdateLists(ILContext il)
+    {
+        ILCursor cursor = new(il);
+
+        if (!cursor.TryGotoNextBestFit(MoveType.Before,
+            instr => instr.MatchLdarg(0),
+            instr => instr.MatchLdfld<EntityList>("toAwake"),
+            instr => instr.MatchCallvirt<List<Entity>>("GetEnumerator"),
+            instr => instr.MatchStloc(4)))
+            throw new Exception("Unable to find foreach loop over `EntityList.toAwake` in `EntityList.UpdateLists`.");
+        
+        VariableDefinition allDreamDashControllers = new(il.Import(typeof(DreamDashController[])));
+        il.Body.Variables.Add(allDreamDashControllers);
+
+        cursor.EmitLdarg0();
+        cursor.EmitDelegate(GetAllControllers);
+        cursor.EmitStloc(allDreamDashControllers);
+
+        if (!cursor.TryGotoNextBestFit(MoveType.After,
+            instr => instr.MatchLdloc(5),
+            instr => instr.MatchLdarg(0),
+            instr => instr.MatchCallvirt<EntityList>("get_Scene"),
+            instr => instr.MatchCallvirt<Entity>("Awake")))
+            throw new Exception("Unable to find call to `Entity.Awake` in `EntityList.UpdateLists`.");
+        
+        cursor.Emit(OpCodes.Ldloc, 5);
+        cursor.Emit(OpCodes.Ldloc, allDreamDashControllers);
+        cursor.EmitDelegate(ProcessEntity);
+
+        return;
+
+        static DreamDashController[] GetAllControllers(EntityList entityList)
+            => entityList.Scene.Tracker.GetEntities<DreamDashController>()
+                                       .Cast<DreamDashController>()
+                                       .ToArray();
+
+        static void ProcessEntity(Entity entity, DreamDashController[] dreamDashControllers)
+        {
+            foreach (DreamDashController controller in dreamDashControllers)
+                controller.Process(entity);
+        }
+    }
 
     public static void Load()
     {
@@ -509,6 +554,8 @@ internal class DreamDashController : Entity
 
         IL.Celeste.DreamBlock.Render += ModifyDreamBlockColors;
         IL.Celeste.DreamBlock.WobbleLine += ModifyDreamBlockColors;
+
+        IL.Monocle.EntityList.UpdateLists += EntityList_UpdateLists;
     }
 
     public static void Unload()
@@ -520,6 +567,8 @@ internal class DreamDashController : Entity
             
         IL.Celeste.DreamBlock.Render -= ModifyDreamBlockColors;
         IL.Celeste.DreamBlock.WobbleLine -= ModifyDreamBlockColors;
+        
+        IL.Monocle.EntityList.UpdateLists -= EntityList_UpdateLists;
     }
     
     #endregion

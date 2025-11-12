@@ -36,14 +36,14 @@ public class PandorasBoxModule : EverestModule {
 
     public override void Load()
     {
-        PandorasBoxExports.Initialize();
-        
         CloneSpawner.Load();
         WaterDrowningController.Load();
         TimeField.Load();
         MarioClearPipe.Load();
         DreamDashController.Load();
         ColoredWater.Load();
+        
+        PandorasBoxExports.Initialize();
     }
 
     public override void Unload()

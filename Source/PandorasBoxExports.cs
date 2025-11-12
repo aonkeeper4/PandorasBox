@@ -3,7 +3,6 @@ using Monocle;
 using MonoMod.ModInterop;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace Celeste.Mod.PandorasBox;
 
@@ -11,6 +10,9 @@ public static class PandorasBoxExports
 {
     internal static void Initialize()
     {
+        DreamDashController.SetupIgnoringTypes.Clear();
+        DreamDashController.ControlledTypes.Clear();
+        
         typeof(DreamDashControllerExports).ModInterop();
     }
 
@@ -29,8 +31,7 @@ public static class PandorasBoxExports
 
         public static (bool?, bool?, bool?, bool?, bool?, bool?, bool?, float?, float?) GetGameplaySettingsFor(Entity entity)
         {
-            DreamDashController controller = entity.Get<DreamDashController.DreamDashControllerComponent>()?.Controller;
-            if (controller is null)
+            if (entity.Get<DreamDashController.DreamDashControllerComponent>()?.Controller is not { } controller)
                 return default;
             
             return (controller.AllowSameDirectionDash,
@@ -43,11 +44,9 @@ public static class PandorasBoxExports
                 controller.SameDirectionSpeedMultiplier,
                 controller.DreamDashSpeed);
         }
-        
         public static (Color?, Color?, Color?, Color?, List<List<Color>>) GetVisualSettingsFor(Entity entity)
         {
-            DreamDashController controller = entity.Get<DreamDashController.DreamDashControllerComponent>()?.Controller;
-            if (controller is not { OverrideColors: true })
+            if (entity.Get<DreamDashController.DreamDashControllerComponent>()?.Controller is not { OverrideColors: true } controller)
                 return default;
             
             return (controller.ActiveBackColor,
