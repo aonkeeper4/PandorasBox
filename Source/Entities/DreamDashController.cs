@@ -14,16 +14,16 @@ namespace Celeste.Mod.PandorasBox;
 [Tracked]
 internal class DreamDashController : Entity
 {
-    internal class DreamDashControllerComponent(DreamDashController controller, bool setupByController) : Component(false, false)
+    internal class DreamDashControllerComponent(DreamDashController controller, bool needsSetup) : Component(false, false)
     {
         public readonly DreamDashController Controller = controller;
-        public readonly bool SetupByController = setupByController;
+        public readonly bool NeedsSetup = needsSetup;
         
         public override void Added(Entity entity)
         {
-            if (SetupByController && entity is not DreamBlock)
-                throw new InvalidOperationException($"{nameof(DreamDashControllerComponent)} cannot be setup by controller when not on a non-{nameof(DreamBlock)} entity!");
-                
+            if (NeedsSetup && entity is not DreamBlock)
+                throw new InvalidOperationException($"{nameof(DreamDashControllerComponent)} cannot need setup when on a non-{nameof(DreamBlock)} entity!");
+            
             base.Added(entity);
         }
     }
@@ -59,7 +59,8 @@ internal class DreamDashController : Entity
     public readonly Color DisabledBackColor;
     public readonly Color ActiveLineColor;
     public readonly Color DisabledLineColor;
-    public readonly List<List<Color>> ParticleLayerColors;
+    public readonly Color[][] ActiveParticleLayerColors;
+    public readonly Color[][] DisabledParticleLayerColors;
 
     // ModInterop stuff
     internal static readonly List<Type> SetupIgnoringTypes = [];
@@ -91,10 +92,15 @@ internal class DreamDashController : Entity
         ActiveLineColor = ColorHelper.GetColor(data.Attr("activeLineColor", "White"));
         DisabledLineColor = ColorHelper.GetColor(data.Attr("disabledLineColor", "6a8480"));
 
-        ParticleLayerColors = [
-            ColorHelper.GetColors(data.Attr("particleLayer0Colors", "ffef11,ff00d0,08a310")),
-            ColorHelper.GetColors(data.Attr("particleLayer1Colors", "5fcde4,7fb25e,e0564c")),
-            ColorHelper.GetColors(data.Attr("particleLayer2Colors", "5b6ee1,CC3B3B,7daa64"))
+        ActiveParticleLayerColors = [
+            ColorHelper.GetColors(data.Attr("particleLayer0Colors", "ffef11,ff00d0,08a310")).ToArray(),
+            ColorHelper.GetColors(data.Attr("particleLayer1Colors", "5fcde4,7fb25e,e0564c")).ToArray(),
+            ColorHelper.GetColors(data.Attr("particleLayer2Colors", "5b6ee1,CC3B3B,7daa64")).ToArray()
+        ];
+        DisabledParticleLayerColors = [
+            ColorHelper.GetColors(data.Attr("disabledParticleLayer0Colors", "LightGray")).ToArray(),
+            ColorHelper.GetColors(data.Attr("disabledParticleLayer1Colors", "LightGray")).ToArray(),
+            ColorHelper.GetColors(data.Attr("disabledParticleLayer2Colors", "LightGray")).ToArray()
         ];
 
         Vector2[] nodes = data.NodesOffset(offset);
@@ -124,10 +130,10 @@ internal class DreamDashController : Entity
         
         if (entity is DreamBlock block)
         { 
-            bool shouldSetup = !SetupIgnoringTypes.Contains(type);
+            bool needsSetup = !SetupIgnoringTypes.Contains(type);
             
-            block.Add(new DreamDashControllerComponent(this, shouldSetup));
-            if (shouldSetup && OverrideColors)
+            block.Add(new DreamDashControllerComponent(this, needsSetup));
+            if (needsSetup && OverrideColors)
                 ChangeDreamBlockParticleColors(block);
 
             return;
@@ -156,7 +162,9 @@ internal class DreamDashController : Entity
         for (int i = 0; i < dreamBlock.particles.Length; i++)
         {
             int layer = dreamBlock.particles[i].Layer;
-            dreamBlock.particles[i].Color = Calc.Random.Choose(ParticleLayerColors[layer]);
+            dreamBlock.particles[i].Color = dreamBlock.playerHasDreamDash
+                ? Calc.Random.Choose(ActiveParticleLayerColors[layer])
+                : Calc.Random.Choose(DisabledParticleLayerColors[layer]);
         }
     }
 
@@ -446,6 +454,17 @@ internal class DreamDashController : Entity
         self.Hair.MoveHairBy(-renderOffset);
         GameplayRenderer.Begin();
     }
+    
+    private static void DreamBlock_Setup(On.Celeste.DreamBlock.orig_Setup orig, DreamBlock self)
+    {
+        orig(self);
+
+        if (self.Get<DreamDashControllerComponent>() is not { Controller: { OverrideColors: true } controller }
+            || !self.SceneAs<Level>().IsInBounds(self))
+            return;
+
+        controller.ChangeDreamBlockParticleColors(self);
+    }
 
     private static void ModifyDreamBlockColors(ILContext il)
     {
@@ -498,7 +517,7 @@ internal class DreamDashController : Entity
                 3 => controller.DisabledLineColor,
                 _ => throw new ArgumentOutOfRangeException()
             };
-            return component.SetupByController && controller.OverrideColors ? colorFromController : orig;
+            return component.NeedsSetup && controller.OverrideColors ? colorFromController : orig;
         }
     }
     
@@ -552,6 +571,7 @@ internal class DreamDashController : Entity
         On.Celeste.Player.DreamDashUpdate += Player_DreamDashUpdate;
         On.Celeste.Player.Update += Player_Update;
 
+        On.Celeste.DreamBlock.Setup += DreamBlock_Setup;
         IL.Celeste.DreamBlock.Render += ModifyDreamBlockColors;
         IL.Celeste.DreamBlock.WobbleLine += ModifyDreamBlockColors;
 
@@ -564,7 +584,8 @@ internal class DreamDashController : Entity
         On.Celeste.Player.DreamDashBegin -= Player_DreamDashBegin;
         On.Celeste.Player.DreamDashUpdate -= Player_DreamDashUpdate;
         On.Celeste.Player.Update -= Player_Update;
-            
+        
+        On.Celeste.DreamBlock.Setup -= DreamBlock_Setup;
         IL.Celeste.DreamBlock.Render -= ModifyDreamBlockColors;
         IL.Celeste.DreamBlock.WobbleLine -= ModifyDreamBlockColors;
         

@@ -26,7 +26,10 @@ dreamDashController.placements = {
             disabledLineColor = "6a8480",
             particleLayer0Colors = "ffef11,ff00d0,08a310",
             particleLayer1Colors = "5fcde4,7fb25e,e0564c",
-            particleLayer2Colors = "5b6ee1,CC3B3B,7daa64"
+            particleLayer2Colors = "5b6ee1,CC3B3B,7daa64",
+            disabledParticleLayer0Colors = "LightGray",
+            disabledParticleLayer1Colors = "LightGray",
+            disabledParticleLayer2Colors = "LightGray"
         }
     },
     {
@@ -49,6 +52,9 @@ dreamDashController.placements = {
             particleLayer0Colors = "ffef11,ff00d0,08a310",
             particleLayer1Colors = "5fcde4,7fb25e,e0564c",
             particleLayer2Colors = "5b6ee1,CC3B3B,7daa64",
+            disabledParticleLayer0Colors = "LightGray",
+            disabledParticleLayer1Colors = "LightGray",
+            disabledParticleLayer2Colors = "LightGray",
             nodes = {
                 { x = 0, y = 0 },
                 { x = 0, y = 0 }
